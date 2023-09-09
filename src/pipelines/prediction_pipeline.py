@@ -4,23 +4,25 @@ from src.exception import CustomException
 from src.logger import logging
 from src.utils import load_object
 import pandas as pd
+import numpy as np
 from flask import request
-
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline
 from dataclasses import dataclass
 
 @dataclass
 class PredictionPipelineConfig:
     prediction_output_dirname: str = 'predictions'
     prediction_file_name: str = 'predicted_file.csv'
-    model_file_path: str = os.path.join('artifacts', "RandomForestClassifier_model.pkl")
+    model_file_path: str = os.path.join('artifacts',"model.pkl")
     preprocessor_path: str = os.path.join('artifacts', 'preprocessor.pkl')
     prediction_file_path: str = os.path.join(prediction_output_dirname, prediction_file_name)
-
+    
 class PredictionPipeline:
     def __init__(self, request: request):
         self.request = request
         self.prediction_pipeline_config = PredictionPipelineConfig()
-
+        
     def save_input_files(self) -> str:
         """
         Method Name : save_input_files
@@ -48,11 +50,11 @@ class PredictionPipeline:
     def predict(self, features):
         try:
             model = load_object(self.prediction_pipeline_config.model_file_path)
-            preprocessor = load_object(file_path=self.prediction_pipeline_config.preprocessor_path)
-
-            transformed_x = preprocessor.transform(features)
-
-            preds = model.predict(transformed_x)
+            # Create a pipeline with the custom preprocessor
+            preprocessor = load_object(file_path=PredictionPipelineConfig().preprocessor_path)
+            
+            transformed_data = preprocessor.transform(features)
+            preds = model.predict(transformed_data)
 
             return preds
 
@@ -73,6 +75,10 @@ class PredictionPipeline:
             input_dataframe: pd.DataFrame = pd.read_csv(input_dataframe_path)
 
             predictions = self.predict(input_dataframe)
+            input_dataframe[prediction_column_name] = [pred for pred in predictions]
+            target_column_mapping = {0:'negative', 1:'hypothyroid'}
+
+            input_dataframe[prediction_column_name] = input_dataframe[prediction_column_name].map(target_column_mapping)
             
             os.makedirs(self.prediction_pipeline_config.prediction_output_dirname, exist_ok=True)
             input_dataframe.to_csv(self.prediction_pipeline_config.prediction_file_path, index=False)
@@ -89,9 +95,8 @@ class PredictionPipeline:
         try:
             input_csv_path = self.save_input_files()
             self.get_predicted_dataframe(input_csv_path)
-            path="predictions/predicted_file.csv"
             
-            return path
+            return self.prediction_pipeline_config
 
         except Exception as e:
             raise CustomException(e, sys)
